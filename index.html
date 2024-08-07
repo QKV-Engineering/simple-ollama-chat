@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Customizable Prompt Request</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      background-color: #f4f4f4;
+      padding: 20px; /* Inset from the border of the browser window */
+      box-sizing: border-box;
+    }
+    #container {
+      width: calc(100% - 40px); /* Inset 20px from each side */
+      max-width: 842px; /* Width of A4 paper in pixels at 96dpi */
+      height: calc(100% - 40px); /* Inset 20px from top and bottom */
+      max-height: 1189px; /* Height of A4 paper in pixels at 96dpi */
+      aspect-ratio: 1 / 1.3; /* Adjusted aspect ratio */
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      padding: 20px;
+      background-color: #fff;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+      box-sizing: border-box;
+    }
+    #messages {
+      height: calc(100% - 140px); /* Adjusted height to fit within the container */
+      overflow-y: auto;
+      border: 1px solid #ccc;
+      padding: 10px;
+      margin-bottom: 20px;
+      box-sizing: border-box;
+    }
+    #input-container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    #input-container input {
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    #button-container {
+      display: flex;
+      justify-content: center;
+    }
+    #fetch-button {
+      padding: 10px 20px;
+      border: 1px solid #ccc;
+      background-color: #007bff;
+      color: white;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    /* Markdown Styling */
+    .markdown-content h1 {
+      font-size: 2em;
+      margin-top: 0.67em;
+      margin-bottom: 0.67em;
+    }
+    .markdown-content h2 {
+      font-size: 1.5em;
+      margin-top: 0.83em;
+      margin-bottom: 0.83em;
+    }
+    .markdown-content h3 {
+      font-size: 1.17em;
+      margin-top: 1em;
+      margin-bottom: 1em;
+    }
+    .markdown-content p {
+      margin: 1em 0;
+    }
+    .markdown-content code {
+      font-family: monospace;
+      background-color: #f4f4f4;
+      padding: 2px 4px;
+      border-radius: 4px;
+    }
+    .markdown-content pre {
+      background-color: #f4f4f4;
+      padding: 10px;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+    .markdown-content pre code {
+      background: none;
+      padding: 0;
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <div id="container">
+    <div id="messages" class="markdown-content"></div>
+    <div id="input-container">
+      <input type="text" id="ip-port-input" placeholder="Enter IP:Port">
+      <input type="text" id="chat-input" placeholder="Type your prompt here...">
+    </div>
+    <div id="button-container">
+      <button id="fetch-button">Send Request</button>
+    </div>
+  </div>
+
+  <script>
+    const messagesDiv = document.getElementById('messages');
+    const fetchButton = document.getElementById('fetch-button');
+    const chatInput = document.getElementById('chat-input');
+    const ipPortInput = document.getElementById('ip-port-input');
+
+    fetchButton.addEventListener('click', () => {
+      const prompt = chatInput.value;
+      const ipPort = ipPortInput.value;
+
+      if (!prompt) {
+        alert('Please enter a prompt');
+        return;
+      }
+
+      if (!ipPort) {
+        alert('Please enter the IP:Port');
+        return;
+      }
+
+      // Cache the old prompt in a variable
+      const oldPrompt = prompt;
+
+      // Clear the textbox immediately
+      chatInput.value = '';
+
+      // Put some filler text that says "Loading..." in the response box immediately
+      const loadingMessage = document.createElement('div');
+      loadingMessage.textContent = 'Loading...';
+      messagesDiv.appendChild(loadingMessage);
+
+      const payload = {
+        model: "llama3:instruct",
+        prompt: oldPrompt,
+        streaming: true
+      };
+
+      fetch(`http://${ipPort}/api/generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      })
+      .then(response => {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let responseText = '';
+
+        const readStream = () => {
+          reader.read().then(({ done, value }) => {
+            if (done) {
+              // Convert the final Markdown text to HTML and display it
+              loadingMessage.innerHTML = marked.parse(responseText);
+              return;
+            }
+
+            const chunk = decoder.decode(value, { stream: true });
+            console.log('Chunk:', chunk);
+            
+            // Process each line of JSON data
+            const jsonObjects = chunk.trim().split('\n');
+            jsonObjects.forEach(jsonStr => {
+              if (jsonStr) {
+                const data = JSON.parse(jsonStr);
+                if (!data.done) {
+                  responseText += data.response;
+                }
+              }
+            });
+
+            // Update the loading message with the current response text in Markdown
+            loadingMessage.innerHTML = marked.parse(responseText + '...');
+            readStream();
+          });
+        };
+
+        readStream();
+      })
+      .catch(error => {
+        const errorMessage = document.createElement('div');
+        errorMessage.textContent = 'Fetch Error: ' + error.message;
+        messagesDiv.appendChild(errorMessage);
+      });
+    });
+  </script>
+</body>
+</html>
